@@ -225,5 +225,59 @@ $('extractBtn').addEventListener('click', extractScreenshots);
 $('clearBtn').addEventListener('click',()=>{$('screenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('ocrStatus').textContent='Cleared.';$('ocrProgress').value=0;});
 $('addRowBtn').addEventListener('click',()=>{extractedRows.push({rank:extractedRows.length+1,name:'',points:0});renderReviewTable();});
 $('loadManualBtn').addEventListener('click',()=>{extractedRows=parseRankings($('rankings').value);renderReviewTable();$('ocrStatus').textContent=`Loaded ${extractedRows.length} pasted rows.`;});
-$('downloadBtn').addEventListener('click',()=>{drawReport();if(!getRows().length)return;const link=document.createElement('a');link.download=`LIIT-${$('date').value.replace(/\s+/g,'-')}-Daily-VS-Report.png`;link.href=canvas.toDataURL('image/png');link.click();});
+async function downloadReport() {
+  const button = $('downloadBtn');
+  const originalText = button.textContent;
+  try {
+    button.disabled = true;
+    button.textContent = 'Preparing PNG...';
+
+    const rows = getRows();
+    if (!rows.length) {
+      $('validation').innerHTML = '<span class="warn">No ranking data is available. Add or extract member data first.</span>';
+      return;
+    }
+
+    if (!template.complete || template.naturalWidth === 0) {
+      $('validation').innerHTML = '<span class="warn">The template image is still loading. Wait a moment and try again.</span>';
+      return;
+    }
+
+    drawReport();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+    const filename = `LIIT-${$('date').value.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'')}-Daily-VS-Report.png`;
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(result => result ? resolve(result) : reject(new Error('The browser could not create the PNG file.')), 'image/png');
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+
+    $('validation').innerHTML += `<br><span class="ok">PNG prepared: ${filename}. Check your Downloads folder.</span>`;
+  } catch (error) {
+    console.error('PNG download failed:', error);
+    $('validation').innerHTML = `<span class="warn">PNG download failed: ${error.message || error}. Try the fallback button below.</span>`;
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const opened = window.open(dataUrl, '_blank');
+      if (!opened) throw new Error('Your browser blocked the download and the fallback tab. Allow pop-ups/downloads for this local site.');
+    } catch (fallbackError) {
+      console.error('PNG fallback failed:', fallbackError);
+      $('validation').innerHTML += `<br><span class="warn">Fallback failed: ${fallbackError.message || fallbackError}</span>`;
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+$('downloadBtn').addEventListener('click', downloadReport);
 $('screenshots').addEventListener('change',e=>{const grid=$('previewGrid');grid.innerHTML='';[...e.target.files].forEach(file=>{const img=document.createElement('img');img.src=URL.createObjectURL(file);grid.appendChild(img);});$('ocrStatus').textContent=`${e.target.files.length} screenshot(s) selected. Click Extract Members.`;});

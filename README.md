@@ -1,24 +1,12 @@
-# LIIT Daily VS Report Generator
+# LIIT Daily VS Report Generator v0.4
 
-This version adds browser-based OCR for the standard Last War Daily Rank screenshots.
+Fixes in this release:
+- Loads `template.png` through `fetch()` and `createImageBitmap()` so the canvas remains exportable.
+- Fixes the “Tainted canvases may not be exported” PNG error.
+- Automatically saves entered roster, points, and daily fields in browser local storage.
+- Restores a legacy backup stored under `liitBackup`.
 
-## Run it
+## Run
+Use VS Code Live Server. The URL should begin with `http://127.0.0.1` or `http://localhost`.
 
-Do not open `index.html` directly from a ZIP or with a `file://` URL.
-
-1. Extract the folder.
-2. Open the folder in VS Code.
-3. Right-click `index.html` and choose **Open with Live Server**.
-4. The address should begin with `http://127.0.0.1` or `http://localhost`.
-
-## Daily workflow
-
-1. Enter date, event, scores, and roster size.
-2. Upload all Daily Rank screenshots.
-3. Click **Extract Members**.
-4. Review and correct the extracted table.
-5. Enter excused members, if any.
-6. Click **Generate Report**.
-7. Click **Download PNG**.
-
-OCR runs in the browser using Tesseract.js and therefore needs an internet connection when the page loads. A review step remains intentional because game usernames and screen overlays can occasionally be misread.
+Do not open `index.html` directly with a `file://` address.

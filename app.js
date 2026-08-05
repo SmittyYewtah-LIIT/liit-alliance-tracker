@@ -1,7 +1,13 @@
 const canvas = document.getElementById('reportCanvas');
 const ctx = canvas.getContext('2d');
-const template = new Image();
-template.src = 'template.png';
+let templateBitmap = null;
+const templateReady = (async () => {
+  const response = await fetch('./template.png', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Could not load template.png (${response.status})`);
+  const blob = await response.blob();
+  templateBitmap = await createImageBitmap(blob);
+  return templateBitmap;
+})();
 
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n || 0).toLocaleString('en-US');
@@ -194,10 +200,11 @@ function calculate() {
   return { rows, totalMembers, excused, stretch, met, below, zero, participating: stretch.length + met.length };
 }
 
-function drawReport() {
+async function drawReport() {
   const d = calculate();
+  await templateReady;
   if (!d.rows.length) { $('validation').innerHTML='<span class="warn">No ranking data is available. Extract screenshots or load pasted data first.</span>'; return; }
-  ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(template,0,0,1024,1536);
+  ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(templateBitmap,0,0,1024,1536);
   cover(345,363,170,62); cover(548,363,160,62); cover(755,363,210,62);
   drawText($('event').value.toUpperCase(),430,402,20,'#eeeeee','center','700');
   drawText(`WEEK ${$('week').value} • DAY ${$('day').value}`,628,397,18,'#eeeeee','center','600');
@@ -219,8 +226,42 @@ function drawReport() {
   const found=d.rows.length; $('validation').innerHTML=`<span class="${found===d.totalMembers?'ok':'warn'}">Using ${found} ranking rows; roster set to ${d.totalMembers}.</span><br>Participation: ${d.participating}/${d.totalMembers} (${pct(d.participating,d.totalMembers)}).<br>Stretch ${d.stretch.length} • Met minimum ${d.met.length} • Below ${d.below.length} • Zero ${d.zero.length}.`;
 }
 
-template.onload = () => { ctx.drawImage(template,0,0,1024,1536); };
-$('generateBtn').addEventListener('click', drawReport);
+
+const STORAGE_KEY = 'liit-report-generator-v04';
+const LEGACY_BACKUP_KEY = 'liitBackup';
+
+function saveCurrentData() {
+  syncFromTable();
+  const fields = ['date','week','day','event','opponentTag','opponentTotal','allianceTotal','totalMembers','excused','rankings'];
+  const payload = { rows: extractedRows, fields: {} };
+  for (const id of fields) payload.fields[id] = $(id)?.value ?? '';
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function restoreSavedData() {
+  try {
+    let payload = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (!payload) {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_BACKUP_KEY) || 'null');
+      if (Array.isArray(legacy)) payload = { rows: legacy, fields: {} };
+    }
+    if (!payload) return;
+    extractedRows = Array.isArray(payload.rows) ? payload.rows : [];
+    for (const [id,value] of Object.entries(payload.fields || {})) if ($(id)) $(id).value = value;
+    renderReviewTable();
+    $('ocrStatus').textContent = extractedRows.length ? `Restored ${extractedRows.length} saved members.` : $('ocrStatus').textContent;
+  } catch (error) {
+    console.warn('Could not restore saved data:', error);
+  }
+}
+
+window.addEventListener('beforeunload', saveCurrentData);
+document.addEventListener('input', event => {
+  if (event.target.closest('.controls')) saveCurrentData();
+});
+
+templateReady.then(() => { ctx.drawImage(templateBitmap,0,0,1024,1536); restoreSavedData(); }).catch(error => { console.error(error); $('validation').innerHTML = `<span class="warn">Template failed to load: ${error.message}</span>`; });
+$('generateBtn').addEventListener('click', async () => { await drawReport(); saveCurrentData(); });
 $('extractBtn').addEventListener('click', extractScreenshots);
 $('clearBtn').addEventListener('click',()=>{$('screenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('ocrStatus').textContent='Cleared.';$('ocrProgress').value=0;});
 $('addRowBtn').addEventListener('click',()=>{extractedRows.push({rank:extractedRows.length+1,name:'',points:0});renderReviewTable();});
@@ -238,12 +279,9 @@ async function downloadReport() {
       return;
     }
 
-    if (!template.complete || template.naturalWidth === 0) {
-      $('validation').innerHTML = '<span class="warn">The template image is still loading. Wait a moment and try again.</span>';
-      return;
-    }
+    await templateReady;
 
-    drawReport();
+    await drawReport();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
     const filename = `LIIT-${$('date').value.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'')}-Daily-VS-Report.png`;

@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LIIT Daily VS Report Generator</title>
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
   <header>
     <div>
       <h1>LIIT Daily VS Report Generator</h1>
-      <p>Template v1.0 — only daily data changes.</p>
+      <p>Upload screenshots, review extracted scores, then generate the report.</p>
     </div>
     <button id="downloadBtn">Download PNG</button>
   </header>
@@ -19,60 +20,60 @@
     <section class="controls">
       <h2>1. Daily details</h2>
       <div class="grid">
-        <label>Date<input id="date" value="July 22, 2026"></label>
-        <label>Week<input id="week" value="30"></label>
-        <label>Day<input id="day" value="3"></label>
+        <label>Date<input id="date" value="August 4, 2026"></label>
+        <label>Week<input id="week" value="32"></label>
+        <label>Day<input id="day" value="2"></label>
         <label>Event
           <select id="event">
             <option>Radar Training</option>
-            <option>Base Expansion</option>
-            <option selected>Age of Science</option>
+            <option selected>Base Expansion</option>
+            <option>Age of Science</option>
             <option>Train Heroes</option>
             <option>Total Mobilization</option>
             <option>Enemy Buster</option>
           </select>
         </label>
-        <label>Opponent tag<input id="opponentTag" value="MARv"></label>
-        <label>Opponent total<input id="opponentTotal" value="310168257"></label>
-        <label>Alliance total<input id="allianceTotal" value="821832368"></label>
-        <label>Total members<input id="totalMembers" value="99"></label>
+        <label>Opponent tag<input id="opponentTag" value="REAR"></label>
+        <label>Opponent total<input id="opponentTotal" value="37586541"></label>
+        <label>Alliance total<input id="allianceTotal" value="731253332"></label>
+        <label>Total members<input id="totalMembers" value="100"></label>
       </div>
 
-      <h2>2. Ranking data</h2>
-      <p class="hint">Paste one player per line as <code>Name, Points</code>. Commas inside point values are allowed.</p>
-      <textarea id="rankings" rows="18">Atlas au Raa, 20196700
-kiki 49, 19548150
-deathwish1, 18904850
-OG Cobb, 16750350
-Tactical Unicorn, 15530100
-CarnageClaus, 14275550
-SmittyYewtah, 13639650
-Vampiresquadron, 12680400
-Poobearrr, 12563250
-Montanagamer, 12317900
-Dilly0, 2528255
-E White, 2046250
-vrodi1003, 1800000
-Dove Zone, 1530000
-MoccaMaster, 1149950
-Tucker11978, 1037000
-RRRDDDRRR, 0
-Narfnarfnarf, 0</textarea>
-
-      <h2>3. Excused members</h2>
-      <p class="hint">Comma-separated names. They only display as excused when under 3.6M.</p>
-      <input id="excused" placeholder="CookieDoh, Moto a GoGo">
-
-      <h2>4. Screenshot uploads</h2>
-      <p class="hint">For now these are stored only in your browser for review. OCR is the next milestone.</p>
+      <h2>2. Upload ranking screenshots</h2>
+      <p class="hint">Upload the Daily Rank screenshots in any order. The app reads the rank, member name, and points. Run this page through Live Server so OCR can load.</p>
       <input id="screenshots" type="file" accept="image/*" multiple>
+      <div class="actions">
+        <button id="extractBtn">Extract Members</button>
+        <button id="clearBtn" class="secondary">Clear</button>
+      </div>
+      <div id="ocrStatus" class="status">No screenshots selected.</div>
+      <progress id="ocrProgress" value="0" max="100"></progress>
       <div id="previewGrid" class="preview-grid"></div>
 
-      <div class="actions">
-        <button id="generateBtn">Generate Report</button>
-        <button id="loadWednesdayBtn" class="secondary">Load Wednesday Sample</button>
+      <h2>3. Review extracted data</h2>
+      <p class="hint">Correct any OCR mistakes before generating the report. Rows are automatically sorted by rank.</p>
+      <div class="table-wrap">
+        <table id="reviewTable">
+          <thead><tr><th>Rank</th><th>Member</th><th>Points</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
+      <button id="addRowBtn" class="secondary small">Add Row</button>
 
+      <details>
+        <summary>Manual paste fallback</summary>
+        <p class="hint">One member per line: <code>Name, Points</code>.</p>
+        <textarea id="rankings" rows="8"></textarea>
+        <button id="loadManualBtn" class="secondary small">Load Pasted Data</button>
+      </details>
+
+      <h2>4. Excused members</h2>
+      <p class="hint">Comma-separated names. Excused status is used only when the member is below 3.6M.</p>
+      <input id="excused" placeholder="CookieDoh, Moto a GoGo">
+
+      <div class="actions primary-actions">
+        <button id="generateBtn">Generate Report</button>
+      </div>
       <div id="validation" class="validation"></div>
     </section>
 

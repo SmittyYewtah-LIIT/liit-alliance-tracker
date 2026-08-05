@@ -1,13 +1,60 @@
 const canvas = document.getElementById('reportCanvas');
 const ctx = canvas.getContext('2d');
 let templateBitmap = null;
-const templateReady = (async () => {
-  const response = await fetch('./template.png', { cache: 'no-store' });
-  if (!response.ok) throw new Error(`Could not load template.png (${response.status})`);
-  const blob = await response.blob();
+let templateReadyResolve;
+let templateReadyReject;
+const templateReady = new Promise((resolve, reject) => {
+  templateReadyResolve = resolve;
+  templateReadyReject = reject;
+});
+
+async function setTemplateFromBlob(blob, sourceLabel = 'template image') {
+  if (!blob || !blob.type.startsWith('image/')) throw new Error('Selected template is not an image file.');
+  if (templateBitmap && typeof templateBitmap.close === 'function') templateBitmap.close();
   templateBitmap = await createImageBitmap(blob);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(templateBitmap, 0, 0, canvas.width, canvas.height);
+  if (document.getElementById('templateStatus')) {
+    document.getElementById('templateStatus').innerHTML = `<span class="ok">Template loaded from ${sourceLabel}.</span>`;
+  }
+  templateReadyResolve(templateBitmap);
   return templateBitmap;
-})();
+}
+
+async function loadDefaultTemplate() {
+  const status = document.getElementById('templateStatus');
+  try {
+    const url = new URL('template-clean.png', window.location.href);
+    const response = await fetch(url.href, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await setTemplateFromBlob(await response.blob(), 'template-clean.png');
+  } catch (fetchError) {
+    console.warn('Automatic template fetch failed:', fetchError);
+    // A same-origin Image fallback handles some Live Server/browser combinations.
+    try {
+      const url = new URL('template-clean.png', window.location.href);
+      const blob = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = async () => {
+          try {
+            const c = document.createElement('canvas');
+            c.width = image.naturalWidth;
+            c.height = image.naturalHeight;
+            c.getContext('2d').drawImage(image, 0, 0);
+            c.toBlob(b => b ? resolve(b) : reject(new Error('Could not convert template image.')), 'image/png');
+          } catch (error) { reject(error); }
+        };
+        image.onerror = () => reject(new Error('Browser could not open template.png.'));
+        image.src = url.href + `?v=${Date.now()}`;
+      });
+      await setTemplateFromBlob(blob, 'template.png fallback');
+    } catch (fallbackError) {
+      console.error('Template fallback failed:', fallbackError);
+      if (status) status.innerHTML = '<span class="warn">Automatic template loading failed. Click “Choose File” above and select template.png from this project folder.</span>';
+    }
+  }
+}
+
 
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n || 0).toLocaleString('en-US');
@@ -187,7 +234,7 @@ function getRows() {
 function drawText(text, x, y, size, color='#eee', align='left', weight='600') {
   ctx.save(); ctx.font = `${weight} ${size}px Arial`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(String(text), x, y); ctx.restore();
 }
-function cover(x,y,w,h,alpha=0.96) { ctx.save(); ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(x,y,w,h); ctx.restore(); }
+function cover(x,y,w,h,alpha=1) { ctx.save(); ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(x,y,w,h); ctx.restore(); }
 
 function calculate() {
   const rows = getRows();
@@ -220,7 +267,7 @@ async function drawReport() {
   for(const m of metrics){cover(m.x-76,748,m.x===161?155:150,112);drawText(m.count,m.x,780,38,'#eeeeee','center','800');drawText(m.x===161?'PARTICIPATION':'MEMBERS',m.x,819,15,'#dddddd','center','500');drawText(m.percentage,m.x,849,19,'#eeeeee','center','600');}
   cover(600,884,270,45); drawText(`${d.stretch.length} / ${d.totalMembers} (${pct(d.stretch.length,d.totalMembers)})`,735,907,29,'#a9a9a9','center','700');
   cover(74,983,377,352); d.rows.slice(0,10).forEach((r,i)=>{const y=1002+i*35;drawText(i+1,49,y,15,'#111','center','800');drawText(r.name,82,y,18,'#eeeeee','left','500');drawText(fmt(r.points),447,y,17,'#eeeeee','right','500');});
-  cover(535,1050,440,290); const follow=[...d.below,...d.zero].sort((a,b)=>b.points-a.points);
+  cover(535,1050,440,290); const follow=[...d.below,...d.zero.filter(r=>!d.excused.has(r.name.toLowerCase()))].sort((a,b)=>b.points-a.points);
   follow.slice(0,8).forEach((r,i)=>{const y=1070+i*35,needed=Math.max(0,3600000-r.points),isExcused=d.excused.has(r.name.toLowerCase());drawText(isExcused?'E':'!',519,y,15,isExcused?'#1aa3ff':'#e32020','center','700');drawText(r.name,552,y,17,'#eeeeee','left','500');drawText(fmt(r.points),790,y,16,'#eeeeee','center','500');drawText(isExcused?'EXCUSED':fmt(needed),940,y,16,isExcused?'#1aa3ff':'#e8b000','right','500');});
   cover(548,1334,290,34); const excusedBelow=follow.filter(r=>d.excused.has(r.name.toLowerCase())); drawText(excusedBelow.length?excusedBelow.map(r=>r.name).join(', '):'None',552,1352,15,'#eeeeee','left','500');
   const found=d.rows.length; $('validation').innerHTML=`<span class="${found===d.totalMembers?'ok':'warn'}">Using ${found} ranking rows; roster set to ${d.totalMembers}.</span><br>Participation: ${d.participating}/${d.totalMembers} (${pct(d.participating,d.totalMembers)}).<br>Stretch ${d.stretch.length} • Met minimum ${d.met.length} • Below ${d.below.length} • Zero ${d.zero.length}.`;
@@ -260,7 +307,8 @@ document.addEventListener('input', event => {
   if (event.target.closest('.controls')) saveCurrentData();
 });
 
-templateReady.then(() => { ctx.drawImage(templateBitmap,0,0,1024,1536); restoreSavedData(); }).catch(error => { console.error(error); $('validation').innerHTML = `<span class="warn">Template failed to load: ${error.message}</span>`; });
+restoreSavedData();
+loadDefaultTemplate();
 $('generateBtn').addEventListener('click', async () => { await drawReport(); saveCurrentData(); });
 $('extractBtn').addEventListener('click', extractScreenshots);
 $('clearBtn').addEventListener('click',()=>{$('screenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('ocrStatus').textContent='Cleared.';$('ocrProgress').value=0;});
@@ -316,6 +364,18 @@ async function downloadReport() {
     button.textContent = originalText;
   }
 }
+
+$('templateFile').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    await setTemplateFromBlob(file, file.name);
+    $('validation').innerHTML = '<span class="ok">Template is ready. Your saved roster remains available.</span>';
+  } catch (error) {
+    console.error(error);
+    $('templateStatus').innerHTML = `<span class="warn">Template could not be loaded: ${error.message || error}</span>`;
+  }
+});
 
 $('downloadBtn').addEventListener('click', downloadReport);
 $('screenshots').addEventListener('change',e=>{const grid=$('previewGrid');grid.innerHTML='';[...e.target.files].forEach(file=>{const img=document.createElement('img');img.src=URL.createObjectURL(file);grid.appendChild(img);});$('ocrStatus').textContent=`${e.target.files.length} screenshot(s) selected. Click Extract Members.`;});

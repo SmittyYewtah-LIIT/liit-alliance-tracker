@@ -39,7 +39,12 @@
         <label>Total members<input id="totalMembers" value="100"></label>
       </div>
 
-      <h2>2. Upload ranking screenshots</h2>
+      <h2>2. Report template</h2>
+      <p class="hint">The app loads <code>template-clean.png</code> automatically. If that fails, select the same template file here. This does not erase your saved roster.</p>
+      <input id="templateFile" type="file" accept="image/png,image/jpeg,image/webp">
+      <div id="templateStatus" class="status">Loading template-clean.png...</div>
+
+      <h2>3. Upload ranking screenshots</h2>
       <p class="hint">Upload the Daily Rank screenshots in any order. The app reads the rank, member name, and points. Run this page through Live Server so OCR can load.</p>
       <input id="screenshots" type="file" accept="image/*" multiple>
       <div class="actions">
@@ -50,7 +55,7 @@
       <progress id="ocrProgress" value="0" max="100"></progress>
       <div id="previewGrid" class="preview-grid"></div>
 
-      <h2>3. Review extracted data</h2>
+      <h2>4. Review extracted data</h2>
       <p class="hint">Correct any OCR mistakes before generating the report. Rows are automatically sorted by rank.</p>
       <div class="table-wrap">
         <table id="reviewTable">
@@ -67,7 +72,7 @@
         <button id="loadManualBtn" class="secondary small">Load Pasted Data</button>
       </details>
 
-      <h2>4. Excused members</h2>
+      <h2>5. Excused members</h2>
       <p class="hint">Comma-separated names. Excused status is used only when the member is below 3.6M.</p>
       <input id="excused" placeholder="CookieDoh, Moto a GoGo">
 

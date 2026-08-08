@@ -1,92 +1,82 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LIIT Daily VS Report Generator</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>LIIT Daily VS Report Generator</h1>
-      <p>Upload screenshots, review extracted scores, then generate the report.</p>
-    </div>
-    <button id="downloadBtn">Download PNG</button>
-  </header>
-
-  <main>
+  <main class="app-shell">
     <section class="controls">
-      <h2>1. Daily details</h2>
-      <div class="grid">
-        <label>Date<input id="date" value="August 4, 2026"></label>
-        <label>Week<input id="week" value="32"></label>
-        <label>Day<input id="day" value="2"></label>
-        <label>Event
-          <select id="event">
-            <option>Radar Training</option>
-            <option selected>Base Expansion</option>
-            <option>Age of Science</option>
-            <option>Train Heroes</option>
-            <option>Total Mobilization</option>
-            <option>Enemy Buster</option>
-          </select>
+      <h1>LIIT Daily VS Report Generator</h1>
+      <p class="sub">Locked-template test build. Enter or paste the reviewed data, then generate the PNG.</p>
+
+      <div class="grid two">
+        <label>Date<input id="reportDate" type="date" /></label>
+        <label>Week<input id="weekNumber" type="number" min="1" max="60" value="32" /></label>
+      </div>
+
+      <div class="grid two">
+        <label>Day<input id="dayNumber" type="number" min="1" max="6" /></label>
+        <label>VS Event<input id="eventTitle" type="text" readonly /></label>
+      </div>
+
+      <fieldset>
+        <legend>Duel</legend>
+        <div class="grid two">
+          <label>Opponent<input id="opponent" type="text" placeholder="REAR" /></label>
+          <label>Alliance Members<input id="allianceMembers" type="number" value="100" min="1" /></label>
+          <label>LIIT Score<input id="liitScore" type="text" inputmode="numeric" /></label>
+          <label>Opponent Score<input id="enemyScore" type="text" inputmode="numeric" /></label>
+        </div>
+        <label class="upload">Optional Duel screenshot for OCR
+          <input id="duelScreenshot" type="file" accept="image/*" />
         </label>
-        <label>Opponent tag<input id="opponentTag" value="REAR"></label>
-        <label>Opponent total<input id="opponentTotal" value="37586541"></label>
-        <label>Alliance total<input id="allianceTotal" value="731253332"></label>
-        <label>Total members<input id="totalMembers" value="100"></label>
-      </div>
+        <div class="actions-row">
+          <button id="readDuelBtn" type="button" class="secondary">Read Duel Screenshot (Beta)</button>
+          <span id="ocrStatus" class="status"></span>
+        </div>
+      </fieldset>
 
-      <h2>2. Report template</h2>
-      <p class="hint">The app loads <code>template-clean.png</code> automatically. If that fails, select the same template file here. This does not erase your saved roster.</p>
-      <input id="templateFile" type="file" accept="image/png,image/jpeg,image/webp">
-      <div id="templateStatus" class="status">Loading template-clean.png...</div>
+      <fieldset>
+        <legend>Roster</legend>
+        <p class="help">Paste reviewed rows as <b>rank,name,points</b>. One member per line. The generator sorts by rank and calculates all participation categories automatically.</p>
+        <textarea id="rosterCsv" rows="15" spellcheck="false" placeholder="1,Johntilla the Fun,59503798\n2,4tt1cus,43824082\n..."></textarea>
+      </fieldset>
 
-      <h2>3. Upload ranking screenshots</h2>
-      <p class="hint">Upload the Daily Rank screenshots in any order. The app reads the rank, member name, and points. Run this page through Live Server so OCR can load.</p>
-      <input id="screenshots" type="file" accept="image/*" multiple>
+      <fieldset>
+        <legend>Excused</legend>
+        <label>Excused members (comma-separated)
+          <input id="excusedMembers" type="text" placeholder="Moto a GoGo" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Leadership Notes</legend>
+        <label>Optional notes (one per line)
+          <textarea id="leadershipNotes" rows="5" placeholder="Leave blank to auto-generate notes from the data."></textarea>
+        </label>
+      </fieldset>
+
       <div class="actions">
-        <button id="extractBtn">Extract Members</button>
-        <button id="clearBtn" class="secondary">Clear</button>
+        <button id="loadDemoBtn" type="button" class="secondary">Load Day 3 Demo</button>
+        <button id="generateBtn" type="button">Generate Report</button>
+        <button id="downloadBtn" type="button" class="success" disabled>Download PNG</button>
       </div>
-      <div id="ocrStatus" class="status">No screenshots selected.</div>
-      <progress id="ocrProgress" value="0" max="100"></progress>
-      <div id="previewGrid" class="preview-grid"></div>
-
-      <h2>4. Review extracted data</h2>
-      <p class="hint">Correct any OCR mistakes before generating the report. Rows are automatically sorted by rank.</p>
-      <div class="table-wrap">
-        <table id="reviewTable">
-          <thead><tr><th>Rank</th><th>Member</th><th>Points</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <button id="addRowBtn" class="secondary small">Add Row</button>
-
-      <details>
-        <summary>Manual paste fallback</summary>
-        <p class="hint">One member per line: <code>Name, Points</code>.</p>
-        <textarea id="rankings" rows="8"></textarea>
-        <button id="loadManualBtn" class="secondary small">Load Pasted Data</button>
-      </details>
-
-      <h2>5. Excused members</h2>
-      <p class="hint">Comma-separated names. Excused status is used only when the member is below 3.6M.</p>
-      <input id="excused" placeholder="CookieDoh, Moto a GoGo">
-
-      <div class="actions primary-actions">
-        <button id="generateBtn">Generate Report</button>
-      </div>
-      <div id="validation" class="validation"></div>
+      <p id="message" class="message"></p>
     </section>
 
-    <section class="output">
+    <section class="preview-wrap">
+      <div class="preview-head">
+        <h2>Preview</h2>
+        <span>1024 × 1536 PNG</span>
+      </div>
       <canvas id="reportCanvas" width="1024" height="1536"></canvas>
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

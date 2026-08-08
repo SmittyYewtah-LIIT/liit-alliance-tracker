@@ -1,23 +1,40 @@
-# LIIT Daily VS Report Generator v0.5
+# LIIT Daily VS Report Generator — Locked Template Test Build
 
-Fixes in this release:
-- Loads `template.png` through `fetch()` and `createImageBitmap()` so the canvas remains exportable.
-- Fixes the “Tainted canvases may not be exported” PNG error.
-- Automatically saves entered roster, points, and daily fields in browser local storage.
-- Restores a legacy backup stored under `liitBackup`.
+This build uses a fixed `template.png` background and draws only dynamic report data on top of it.
 
-## Run
-Use VS Code Live Server. The URL should begin with `http://127.0.0.1` or `http://localhost`.
+## Files
+- `index.html`
+- `styles.css`
+- `app.js`
+- `template.png`
 
-Do not open `index.html` directly with a `file://` address.
+## Test locally (recommended)
+Do **not** double-click `index.html` and run it as a `file://` page.
 
+In VS Code:
+1. Open the folder.
+2. Install the **Live Server** extension if needed.
+3. Right-click `index.html`.
+4. Choose **Open with Live Server**.
 
-## Template loading fallback
-If the page says the template could not be fetched, use the **Report template** file picker and select `template.png` from the project folder. The chosen local image is loaded into the canvas without tainting it, so PNG export remains available. Saved roster data is stored in browser localStorage and is not erased by choosing a template.
+## GitHub
+Replace the existing files in the repository root with these four files and commit them.
+If using GitHub Pages, set Pages to deploy from the `main` branch/root.
 
+## Current test workflow
+1. Choose the report date.
+2. The VS event title auto-populates from the weekday:
+   - Monday — Radar Training
+   - Tuesday — Base Expansion
+   - Wednesday — Age of Science
+   - Thursday — Train Heroes
+   - Friday — Total Mobilization
+   - Saturday — Enemy Buster
+3. Enter the opponent and duel scores, or optionally try the Duel Screenshot OCR button.
+4. Paste the reviewed roster as `rank,name,points`, one member per line.
+5. Enter any excused members.
+6. Click **Generate Report**.
+7. Click **Download PNG**.
 
-## v0.6 clean-template fix
-- Uses `template-clean.png`, which has all prior report data removed.
-- New values are drawn onto blank data areas instead of over old values.
-- Canvas masks are now fully opaque.
-- Excused zero-point members are no longer duplicated in Leadership Follow-Up.
+## Important
+The Duel OCR button is currently marked **Beta** and should always be reviewed before generating. The report renderer itself is deterministic: it does not use AI image generation and will reuse the same template every time.

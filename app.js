@@ -1,381 +1,246 @@
-const canvas = document.getElementById('reportCanvas');
+const $ = (id) => document.getElementById(id);
+const canvas = $('reportCanvas');
 const ctx = canvas.getContext('2d');
-let templateBitmap = null;
-let templateReadyResolve;
-let templateReadyReject;
-const templateReady = new Promise((resolve, reject) => {
-  templateReadyResolve = resolve;
-  templateReadyReject = reject;
-});
+const template = new Image();
+template.src = 'template.png';
 
-async function setTemplateFromBlob(blob, sourceLabel = 'template image') {
-  if (!blob || !blob.type.startsWith('image/')) throw new Error('Selected template is not an image file.');
-  if (templateBitmap && typeof templateBitmap.close === 'function') templateBitmap.close();
-  templateBitmap = await createImageBitmap(blob);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(templateBitmap, 0, 0, canvas.width, canvas.height);
-  if (document.getElementById('templateStatus')) {
-    document.getElementById('templateStatus').innerHTML = `<span class="ok">Template loaded from ${sourceLabel}.</span>`;
-  }
-  templateReadyResolve(templateBitmap);
-  return templateBitmap;
+const EVENT_BY_DAY = {
+  1: 'RADAR TRAINING',
+  2: 'BASE EXPANSION',
+  3: 'AGE OF SCIENCE',
+  4: 'TRAIN HEROES',
+  5: 'TOTAL MOBILIZATION',
+  6: 'ENEMY BUSTER'
+};
+
+const dayIndexToVsDay = {1:1,2:2,3:3,4:4,5:5,6:6}; // JS Mon=1 ... Sat=6
+
+function n(v){return Number(String(v ?? '').replace(/[^0-9-]/g,'')) || 0}
+function fmt(v){return n(v).toLocaleString('en-US')}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function pct(v,total){return total ? (100*v/total) : 0}
+
+function setTodayDefaults(){
+  const d = new Date();
+  const local = new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  $('reportDate').value = local;
+  syncDayFromDate();
 }
 
-async function loadDefaultTemplate() {
-  const status = document.getElementById('templateStatus');
-  try {
-    const url = new URL('template-clean.png', window.location.href);
-    const response = await fetch(url.href, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    await setTemplateFromBlob(await response.blob(), 'template-clean.png');
-  } catch (fetchError) {
-    console.warn('Automatic template fetch failed:', fetchError);
-    // A same-origin Image fallback handles some Live Server/browser combinations.
-    try {
-      const url = new URL('template-clean.png', window.location.href);
-      const blob = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = async () => {
-          try {
-            const c = document.createElement('canvas');
-            c.width = image.naturalWidth;
-            c.height = image.naturalHeight;
-            c.getContext('2d').drawImage(image, 0, 0);
-            c.toBlob(b => b ? resolve(b) : reject(new Error('Could not convert template image.')), 'image/png');
-          } catch (error) { reject(error); }
-        };
-        image.onerror = () => reject(new Error('Browser could not open template.png.'));
-        image.src = url.href + `?v=${Date.now()}`;
-      });
-      await setTemplateFromBlob(blob, 'template.png fallback');
-    } catch (fallbackError) {
-      console.error('Template fallback failed:', fallbackError);
-      if (status) status.innerHTML = '<span class="warn">Automatic template loading failed. Click “Choose File” above and select template.png from this project folder.</span>';
-    }
-  }
+function syncDayFromDate(){
+  const val = $('reportDate').value;
+  if(!val) return;
+  const date = new Date(val+'T12:00:00');
+  const jsDay = date.getDay();
+  const vsDay = dayIndexToVsDay[jsDay] || '';
+  if(vsDay) $('dayNumber').value = vsDay;
+  syncEvent();
 }
+function syncEvent(){
+  const day = Number($('dayNumber').value);
+  $('eventTitle').value = EVENT_BY_DAY[day] || 'NO VS / REST DAY';
+}
+$('reportDate').addEventListener('change', syncDayFromDate);
+$('dayNumber').addEventListener('input', syncEvent);
 
-
-const $ = id => document.getElementById(id);
-const fmt = n => Number(n || 0).toLocaleString('en-US');
-const compact = n => `${(Number(n || 0) / 1_000_000).toFixed(2)}M`;
-const pct = (a,b) => b ? `${(a / b * 100).toFixed(1)}%` : '0.0%';
-let extractedRows = [];
-
-function parseRankings(text) {
+function parseRoster(){
+  const lines = $('rosterCsv').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const rows = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const match = line.match(/^(.*?)[,\t]\s*([\d,]+)\s*$/);
-    if (!match) continue;
-    rows.push({ rank: rows.length + 1, name: match[1].trim(), points: Number(match[2].replace(/,/g,'')) || 0 });
+  for(const line of lines){
+    let parts;
+    if(line.includes('\t')) parts=line.split('\t');
+    else parts=line.split(',');
+    if(parts.length<3) continue;
+    const rank=n(parts.shift());
+    const points=n(parts.pop());
+    const name=parts.join(',').trim();
+    if(rank && name) rows.push({rank,name,points});
   }
-  return rows.sort((a,b) => b.points - a.points).map((r,i)=>({...r,rank:i+1}));
+  rows.sort((a,b)=>a.rank-b.rank);
+  return rows;
+}
+function getExcused(){
+  return new Set($('excusedMembers').value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean));
+}
+function derive(rows){
+  const total = Math.max(n($('allianceMembers').value), rows.length || 0);
+  const excused=getExcused();
+  const stretch=rows.filter(r=>r.points>=7200000).length;
+  const met=rows.filter(r=>r.points>=3600000 && r.points<7200000).length;
+  const below=rows.filter(r=>r.points>0 && r.points<3600000);
+  const zeros=rows.filter(r=>r.points===0);
+  const active=rows.filter(r=>r.points>=3600000).length;
+  const excusedZero=zeros.filter(r=>excused.has(r.name.toLowerCase()));
+  const unexcusedZero=zeros.filter(r=>!excused.has(r.name.toLowerCase()));
+  // Participation follows the alliance rule: >=3.6M divided by alliance members.
+  return {total,stretch,met,below,zeros,active,excusedZero,unexcusedZero,rate:pct(active,total)};
 }
 
-function cleanName(value) {
-  return value
-    .replace(/\[.*?\]/g, '')
-    .replace(/\bLast\s+Light\b/ig, '')
-    .replace(/^\W+|\W+$/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+function font(size, weight='700', family='Arial Narrow, Arial, sans-serif'){ctx.font=`${weight} ${size}px ${family}`}
+function text(t,x,y,size=24,color='#fff',align='left',weight='700'){
+  ctx.save();font(size,weight);ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(String(t),x,y);ctx.restore();
 }
+function fitText(t,x,y,maxWidth,size=28,color='#fff',align='center',weight='800'){
+  ctx.save(); let s=size; font(s,weight); while(s>12 && ctx.measureText(String(t)).width>maxWidth){s--;font(s,weight)} ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(String(t),x,y);ctx.restore();
+}
+function mask(x,y,w,h,color='#080c10'){ctx.save();ctx.fillStyle=color;ctx.fillRect(x,y,w,h);ctx.restore()}
+function line(x1,y1,x2,y2,color='rgba(255,255,255,.25)',width=1){ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore()}
 
-function preprocessImage(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      // Ranking cards occupy the center of the standard 941x2048 screenshot.
-      const sx = Math.round(img.width * 0.03);
-      const sy = Math.round(img.height * 0.205);
-      const sw = Math.round(img.width * 0.94);
-      const sh = Math.round(img.height * 0.60);
-      const scale = 1.5;
-      const c = document.createElement('canvas');
-      c.width = Math.round(sw * scale);
-      c.height = Math.round(sh * scale);
-      const cctx = c.getContext('2d', { willReadFrequently: true });
-      cctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-      const data = cctx.getImageData(0,0,c.width,c.height);
-      for (let i=0; i<data.data.length; i+=4) {
-        const r=data.data[i], g=data.data[i+1], b=data.data[i+2];
-        let gray = 0.299*r + 0.587*g + 0.114*b;
-        gray = gray > 150 ? 255 : Math.max(0, gray - 35);
-        data.data[i]=data.data[i+1]=data.data[i+2]=gray;
-      }
-      cctx.putImageData(data,0,0);
-      URL.revokeObjectURL(img.src);
-      resolve(c);
-    };
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
+function drawTemplate(){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(template,0,0,1024,1536)}
+
+function render(){
+  const rows=parseRoster();
+  if(!rows.length){$('message').textContent='Paste roster data first (rank,name,points).';return}
+  const stats=derive(rows);
+  const dateVal=$('reportDate').value;
+  const date=dateVal?new Date(dateVal+'T12:00:00'):new Date();
+  const weekday=date.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();
+  const dateLong=date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase();
+  const event=$('eventTitle').value || EVENT_BY_DAY[Number($('dayNumber').value)] || '';
+  const opponent=($('opponent').value||'OPPONENT').toUpperCase();
+  const liit=n($('liitScore').value);
+  const enemy=n($('enemyScore').value);
+  const result=liit>=enemy?'VICTORY':'DEFEAT';
+  const margin=Math.abs(liit-enemy);
+
+  drawTemplate();
+
+  // Header date: mask only the old sample text while preserving calendar icon.
+  mask(836,42,165,78,'#070a0d');
+  fitText(weekday,916,59,160,21,'#fff','center','800');
+  fitText(dateLong,916,85,165,18,'#fff','center','800');
+
+  // Event title: mask old title, preserve the bar and icon.
+  mask(403,108,315,48,'#173047');
+  fitText(event,560,133,300,31,'#fff','center','900');
+
+  // LIIT score blank zone.
+  mask(192,284,235,42,'#06101a');
+  fitText(fmt(liit),310,307,220,34,'#fff','center','900');
+
+  // Opponent zone: remove baked REAR name, score and emblem.
+  mask(650,180,355,146,'#32100f');
+  fitText(opponent,760,222,190,36,'#fff','center','900');
+  fitText(fmt(enemy),760,290,245,34,'#fff','center','900');
+  // simple opponent badge placeholder
+  ctx.save();ctx.strokeStyle='#c7c7c7';ctx.lineWidth=3;ctx.beginPath();ctx.arc(935,254,42,0,Math.PI*2);ctx.stroke();ctx.restore();
+  fitText(opponent.slice(0,6),935,254,72,17,'#ddd','center','900');
+
+  // Result and margin
+  mask(187,341,220,46,'#070b0e');
+  text(result,295,362,35,result==='VICTORY'?'#55d30f':'#ff3333','center','900');
+  mask(642,343,230,43,'#070b0e');
+  fitText(fmt(margin),755,363,220,31,result==='VICTORY'?'#55d30f':'#ffcc29','center','900');
+
+  // Metrics
+  const metricY=575;
+  mask(48,552,87,55,'#071019'); text(stats.total,91,581,37,'#fff','center','900');
+  mask(209,552,102,55,'#071019'); text(stats.stretch,260,581,37,'#fff','center','900');
+  mask(375,552,102,55,'#071019'); text(stats.met,426,581,37,'#fff','center','900');
+  mask(535,552,102,55,'#071019'); text(stats.below.length,586,581,37,'#fff','center','900');
+  mask(699,552,102,55,'#071019'); text(stats.zeros.length,750,581,37,'#fff','center','900');
+  mask(864,495,110,112,'#071019');
+  text(`${stats.rate.toFixed(0)}%`,919,530,32,'#fff','center','900');
+  text(`${stats.active} / ${stats.total}`,919,581,20,'#fff','center','800');
+
+  // Top 10
+  const top10=rows.slice(0,10);
+  for(let i=0;i<10;i++){
+    const y=712+i*46.0;
+    mask(128,y-16,335,33,'#061018');
+    if(top10[i]){
+      fitText(top10[i].name,138,y,245,22,'#fff','left','700');
+      fitText(fmt(top10[i].points),465,y,120,20,'#f4b719','right','800');
+    }
+  }
+
+  // Leadership follow-up: use up to 10 below-min rows with compact spacing.
+  mask(516,777,468,196,'#071018');
+  const follow=stats.below.slice().sort((a,b)=>b.points-a.points).slice(0,10);
+  follow.forEach((r,i)=>{
+    const y=792+i*18;
+    fitText(r.name,526,y,190,16,'#f2f2f2','left','700');
+    fitText(fmt(r.points),820,y,102,16,'#ff3838','right','700');
+    fitText(fmt(3600000-r.points),966,y,125,16,'#ffc400','right','700');
   });
-}
 
-function groupWordsIntoRows(words, width) {
-  const usable = words.filter(w => w.text && Number(w.confidence ?? w.conf ?? 0) > 25);
-  const groups = [];
-  const tolerance = 42;
-  for (const word of usable.sort((a,b)=>a.bbox.y0-b.bbox.y0 || a.bbox.x0-b.bbox.x0)) {
-    const cy = (word.bbox.y0 + word.bbox.y1) / 2;
-    let group = groups.find(g => Math.abs(g.cy - cy) < tolerance);
-    if (!group) { group = {cy, words:[]}; groups.push(group); }
-    group.words.push(word);
-    group.cy = group.words.reduce((s,w)=>s+(w.bbox.y0+w.bbox.y1)/2,0)/group.words.length;
-  }
-
-  // Merge text lines that belong to the same player card.
-  const cardGroups = [];
-  for (const g of groups.sort((a,b)=>a.cy-b.cy)) {
-    let card = cardGroups.find(c => Math.abs(c.cy-g.cy) < 100);
-    if (!card) { card={cy:g.cy, words:[]}; cardGroups.push(card); }
-    card.words.push(...g.words);
-    card.cy = card.words.reduce((s,w)=>s+(w.bbox.y0+w.bbox.y1)/2,0)/card.words.length;
-  }
-
-  const found = [];
-  for (const card of cardGroups) {
-    const ws = card.words.sort((a,b)=>a.bbox.x0-b.bbox.x0);
-    const rankCandidates = ws.filter(w => w.bbox.x0 < width*0.18).map(w=>w.text.replace(/\D/g,''));
-    const rank = rankCandidates.map(Number).find(n=>n>=1 && n<=100);
-    const pointText = ws.filter(w => w.bbox.x0 > width*0.68).map(w=>w.text).join(' ');
-    const pointMatches = pointText.match(/[\d,.]+/g) || [];
-    const points = pointMatches.map(v=>Number(v.replace(/\D/g,''))).filter(n=>Number.isFinite(n)).sort((a,b)=>b-a)[0];
-    const nameWords = ws.filter(w => w.bbox.x0 > width*0.25 && w.bbox.x0 < width*0.68 && !/\[?Liit\]?|Last|Light/i.test(w.text));
-    const name = cleanName(nameWords.map(w=>w.text).join(' '));
-    if (rank && name && Number.isFinite(points)) found.push({rank,name,points});
-  }
-  return found;
-}
-
-async function extractScreenshots() {
-  const files = [...$('screenshots').files];
-  if (!files.length) {
-    $('ocrStatus').textContent = 'Choose ranking screenshots first.';
-    return;
-  }
-  if (!window.Tesseract) {
-    $('ocrStatus').textContent = 'OCR library did not load. Confirm internet access and run with Live Server.';
-    return;
-  }
-  $('extractBtn').disabled = true;
-  $('ocrProgress').value = 0;
-  const all = [];
-  try {
-    for (let i=0; i<files.length; i++) {
-      $('ocrStatus').textContent = `Reading screenshot ${i+1} of ${files.length}: ${files[i].name}`;
-      const processed = await preprocessImage(files[i]);
-      const result = await Tesseract.recognize(processed, 'eng', {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            $('ocrProgress').value = Math.round(((i + m.progress) / files.length) * 100);
-          }
-        }
-      });
-      const rows = groupWordsIntoRows(result.data.words || [], processed.width);
-      all.push(...rows);
-    }
-    const byRank = new Map();
-    for (const row of all) {
-      const current = byRank.get(row.rank);
-      if (!current || row.name.length > current.name.length) byRank.set(row.rank,row);
-    }
-    extractedRows = [...byRank.values()].sort((a,b)=>a.rank-b.rank);
-    renderReviewTable();
-    $('ocrProgress').value = 100;
-    const missing = [];
-    const total = Number($('totalMembers').value) || 100;
-    for (let i=1;i<=total;i++) if (!byRank.has(i)) missing.push(i);
-    $('ocrStatus').textContent = `Extracted ${extractedRows.length} members. ${missing.length ? `Missing ranks: ${missing.join(', ')}.` : 'All ranks found.'} Review before generating.`;
-  } catch (error) {
-    console.error(error);
-    $('ocrStatus').textContent = `OCR stopped: ${error.message || error}`;
-  } finally {
-    $('extractBtn').disabled = false;
-  }
-}
-
-function renderReviewTable() {
-  const tbody = $('reviewTable').querySelector('tbody');
-  tbody.innerHTML = '';
-  extractedRows.sort((a,b)=>a.rank-b.rank).forEach((row,index) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td><input class="rank-input" type="number" min="1" max="100" value="${row.rank}"></td>
-      <td><input class="name-input" value="${escapeHtml(row.name)}"></td>
-      <td><input class="points-input" inputmode="numeric" value="${fmt(row.points)}"></td>
-      <td><button class="remove-row" aria-label="Remove row">×</button></td>`;
-    tr.querySelector('.rank-input').addEventListener('change', e=>row.rank=Number(e.target.value));
-    tr.querySelector('.name-input').addEventListener('input', e=>row.name=e.target.value.trim());
-    tr.querySelector('.points-input').addEventListener('input', e=>row.points=Number(e.target.value.replace(/\D/g,''))||0);
-    tr.querySelector('.remove-row').addEventListener('click', ()=>{extractedRows.splice(index,1);renderReviewTable();});
-    tbody.appendChild(tr);
+  // No participation area. Show unexcused first, then excused.
+  mask(520,1014,300,122,'#071018');
+  const allZero=[...stats.unexcusedZero.map(r=>({...r,exc:false})),...stats.excusedZero.map(r=>({...r,exc:true}))];
+  allZero.slice(0,6).forEach((r,i)=>{
+    const y=1043+i*22;
+    fitText('• '+r.name,530,y,205,17,r.exc?'#ffd046':'#fff','left','700');
+    if(r.exc) text('EXCUSED',792,y,14,'#ffd046','right','900');
   });
-}
-function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-function syncFromTable(){
-  const rows=[];
-  $('reviewTable').querySelectorAll('tbody tr').forEach(tr=>{
-    const rank=Number(tr.querySelector('.rank-input').value);
-    const name=tr.querySelector('.name-input').value.trim();
-    const points=Number(tr.querySelector('.points-input').value.replace(/\D/g,''))||0;
-    if(name) rows.push({rank,name,points});
+
+  // Leadership notes area
+  mask(173,1190,480,136,'#071018');
+  let notes=$('leadershipNotes').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!notes.length){
+    notes=[
+      `${result==='VICTORY'?'LIIT won':'LIIT finished'} by ${fmt(margin)} VS points.`,
+      `${stats.rate.toFixed(0)}% of the alliance met the 3.6M participation minimum.`,
+      `${stats.below.length} members finished below the 3.6M minimum.`,
+      `${stats.unexcusedZero.length} unexcused members recorded zero points.`,
+      stats.excusedZero.length?`${stats.excusedZero.length} zero-point member(s) were excused.`:'No zero-point members were marked excused.'
+    ];
+  }
+  notes.slice(0,5).forEach((note,i)=>{
+    const y=1210+i*25;
+    const color=i===0?'#65d81c':i===1?'#65d81c':i===2?'#ffc52a':i===3?'#ff3a3a':'#2caaf5';
+    text(i<2?'✓':i===2?'▲':i===3?'!':'i',157,y,18,color,'center','900');
+    fitText(note,180,y,455,18,'#fff','left','600');
   });
-  extractedRows=rows;
+
+  // Bottom quote area, deliberately separate from dynamic data.
+  mask(23,1355,665,150,'#071018');
+  fitText('A SINGLE WARRIOR MAY LOSE A BATTLE,',355,1402,620,25,'#f2f2f2','center','900');
+  fitText('BUT A CLAN OF WARRIORS WINS THE WAR.',355,1438,620,26,'#f4b719','center','900');
+  fitText('HONOR  •  LOYALTY  •  VICTORY',355,1481,500,19,'#d7d7d7','center','800');
+
+  $('downloadBtn').disabled=false;
+  $('message').textContent=`Rendered ${rows.length} roster rows • ${stats.active}/${stats.total} active • ${stats.rate.toFixed(1)}% participation.`;
 }
 
-function getRows() {
-  syncFromTable();
-  if (extractedRows.length) return [...extractedRows].sort((a,b)=>b.points-a.points);
-  return parseRankings($('rankings').value);
+function download(){
+  const day=$('dayNumber').value||'X';
+  const date=$('reportDate').value||'date';
+  canvas.toBlob(blob=>{
+    if(!blob){$('message').textContent='PNG export failed.';return}
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`LIIT_Day_${day}_${date}.png`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  },'image/png');
 }
 
-function drawText(text, x, y, size, color='#eee', align='left', weight='600') {
-  ctx.save(); ctx.font = `${weight} ${size}px Arial`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(String(text), x, y); ctx.restore();
-}
-function cover(x,y,w,h,alpha=1) { ctx.save(); ctx.fillStyle = `rgba(0,0,0,${alpha})`; ctx.fillRect(x,y,w,h); ctx.restore(); }
-
-function calculate() {
-  const rows = getRows();
-  const totalMembers = Number($('totalMembers').value) || rows.length;
-  const excused = new Set($('excused').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
-  const stretch = rows.filter(r => r.points >= 7_200_000);
-  const met = rows.filter(r => r.points >= 3_600_000 && r.points < 7_200_000);
-  const below = rows.filter(r => r.points > 0 && r.points < 3_600_000);
-  const zero = rows.filter(r => r.points === 0);
-  return { rows, totalMembers, excused, stretch, met, below, zero, participating: stretch.length + met.length };
-}
-
-async function drawReport() {
-  const d = calculate();
-  await templateReady;
-  if (!d.rows.length) { $('validation').innerHTML='<span class="warn">No ranking data is available. Extract screenshots or load pasted data first.</span>'; return; }
-  ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(templateBitmap,0,0,1024,1536);
-  cover(345,363,170,62); cover(548,363,160,62); cover(755,363,210,62);
-  drawText($('event').value.toUpperCase(),430,402,20,'#eeeeee','center','700');
-  drawText(`WEEK ${$('week').value} • DAY ${$('day').value}`,628,397,18,'#eeeeee','center','600');
-  drawText($('date').value.toUpperCase(),860,397,18,'#eeeeee','center','600');
-  cover(305,469,420,145);
-  drawText('VICTORY',377,485,25,'#4fae19','center','800'); drawText('[LIIT]',377,523,21,'#c9c9c9','center','700');
-  drawText(compact($('allianceTotal').value),377,560,41,'#4fae19','center','800'); drawText('VS POINTS TODAY',377,598,16,'#d8d8d8','center','500');
-  drawText('VS',512,535,46,'#e4b537','center','900'); drawText('DEFEAT',647,485,25,'#ce1f1f','center','800');
-  drawText(`[${$('opponentTag').value}]`,647,523,21,'#c9c9c9','center','700'); drawText(compact($('opponentTotal').value),647,560,41,'#ce1f1f','center','800');
-  drawText('VS POINTS TODAY',647,598,16,'#d8d8d8','center','500'); cover(740,468,250,145);
-  drawText('ALLIANCE TOTAL VS',865,490,18,'#bdbdbd','center','600'); drawText(compact($('allianceTotal').value),865,550,44,'#d89f16','center','800');
-  const metrics=[{x:161,count:`${d.participating} / ${d.totalMembers}`,percentage:pct(d.participating,d.totalMembers)},{x:344,count:d.stretch.length,percentage:pct(d.stretch.length,d.totalMembers)},{x:529,count:d.met.length,percentage:pct(d.met.length,d.totalMembers)},{x:712,count:d.below.length,percentage:pct(d.below.length,d.totalMembers)},{x:908,count:d.zero.length,percentage:pct(d.zero.length,d.totalMembers)}];
-  for(const m of metrics){cover(m.x-76,748,m.x===161?155:150,112);drawText(m.count,m.x,780,38,'#eeeeee','center','800');drawText(m.x===161?'PARTICIPATION':'MEMBERS',m.x,819,15,'#dddddd','center','500');drawText(m.percentage,m.x,849,19,'#eeeeee','center','600');}
-  cover(600,884,270,45); drawText(`${d.stretch.length} / ${d.totalMembers} (${pct(d.stretch.length,d.totalMembers)})`,735,907,29,'#a9a9a9','center','700');
-  cover(74,983,377,352); d.rows.slice(0,10).forEach((r,i)=>{const y=1002+i*35;drawText(i+1,49,y,15,'#111','center','800');drawText(r.name,82,y,18,'#eeeeee','left','500');drawText(fmt(r.points),447,y,17,'#eeeeee','right','500');});
-  cover(535,1050,440,290); const follow=[...d.below,...d.zero.filter(r=>!d.excused.has(r.name.toLowerCase()))].sort((a,b)=>b.points-a.points);
-  follow.slice(0,8).forEach((r,i)=>{const y=1070+i*35,needed=Math.max(0,3600000-r.points),isExcused=d.excused.has(r.name.toLowerCase());drawText(isExcused?'E':'!',519,y,15,isExcused?'#1aa3ff':'#e32020','center','700');drawText(r.name,552,y,17,'#eeeeee','left','500');drawText(fmt(r.points),790,y,16,'#eeeeee','center','500');drawText(isExcused?'EXCUSED':fmt(needed),940,y,16,isExcused?'#1aa3ff':'#e8b000','right','500');});
-  cover(548,1334,290,34); const excusedBelow=follow.filter(r=>d.excused.has(r.name.toLowerCase())); drawText(excusedBelow.length?excusedBelow.map(r=>r.name).join(', '):'None',552,1352,15,'#eeeeee','left','500');
-  const found=d.rows.length; $('validation').innerHTML=`<span class="${found===d.totalMembers?'ok':'warn'}">Using ${found} ranking rows; roster set to ${d.totalMembers}.</span><br>Participation: ${d.participating}/${d.totalMembers} (${pct(d.participating,d.totalMembers)}).<br>Stretch ${d.stretch.length} • Met minimum ${d.met.length} • Below ${d.below.length} • Zero ${d.zero.length}.`;
+async function readDuel(){
+  const file=$('duelScreenshot').files[0];
+  if(!file){$('ocrStatus').textContent='Choose a Duel screenshot first.';return}
+  if(!window.Tesseract){$('ocrStatus').textContent='OCR library did not load. Use Live Server / GitHub Pages and check internet access.';return}
+  $('ocrStatus').textContent='Reading screenshot…';
+  try{
+    const {data:{text:raw}}=await Tesseract.recognize(file,'eng',{logger:m=>{if(m.status==='recognizing text')$('ocrStatus').textContent=`OCR ${Math.round((m.progress||0)*100)}%`;}});
+    const text=raw.replace(/\s+/g,' ');
+    // Look for bracketed alliance tags and large score numbers.
+    const tags=[...text.matchAll(/\[\s*([A-Za-z0-9]{2,8})\s*\]/g)].map(m=>m[1]);
+    const nums=[...text.matchAll(/\b\d{1,3}(?:,\d{3}){2,}\b/g)].map(m=>n(m[0])).filter(v=>v>1000000);
+    const opponentTag=tags.find(t=>t.toLowerCase()!=='liit');
+    if(opponentTag) $('opponent').value=opponentTag.toUpperCase();
+    // Duel screenshot normally presents LIIT first, opponent second; choose two largest in first several values carefully.
+    if(nums.length>=2){$('liitScore').value=fmt(nums[0]);$('enemyScore').value=fmt(nums[1]);}
+    $('ocrStatus').textContent=`OCR complete. Please verify opponent and both scores before generating.`;
+  }catch(err){console.error(err);$('ocrStatus').textContent='OCR failed. Enter the opponent and scores manually.';}
 }
 
-
-const STORAGE_KEY = 'liit-report-generator-v04';
-const LEGACY_BACKUP_KEY = 'liitBackup';
-
-function saveCurrentData() {
-  syncFromTable();
-  const fields = ['date','week','day','event','opponentTag','opponentTotal','allianceTotal','totalMembers','excused','rankings'];
-  const payload = { rows: extractedRows, fields: {} };
-  for (const id of fields) payload.fields[id] = $(id)?.value ?? '';
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+function loadDemo(){
+  $('reportDate').value='2026-08-05'; $('weekNumber').value=32; $('dayNumber').value=3; syncEvent();
+  $('opponent').value='REAR'; $('liitScore').value='805,705,900'; $('enemyScore').value='28,643,976'; $('allianceMembers').value=100; $('excusedMembers').value='Moto a GoGo';
+  $('rosterCsv').value=`1,Johntilla the Fun,19718400\n2,OG Cobb,19001300\n3,TangoWhiskeyy,18991350\n4,4tt1cus,17168200\n5,Dubbzz7,16702250\n6,Dr LAZR,14798200\n7,Náțe,14731250\n8,Raeghin,14218250\n9,Oblivion,13752250\n10,oAbaporu,13516550\n11,Redkorn,13428600\n12,Tex2885,13396650\n13,kiki 49,12822300\n14,Lileldy,12677350\n15,Kokrocket,12599800\n16,PeterD63,12193200\n17,Ä B B Ÿ,11747450\n18,RAGS,11383500\n19,Deputydawg255725i4,11081400\n20,B R Y L L E,10838300\n21,MRSDucky615,10821200\n22,JustUneBite,10733250\n23,GooberNoPants,10466050\n24,BuddhaBellie,10407750\n25,Blytheville,10357550\n26,Oba Ogun,10304350\n27,Goldfischy,10270250\n28,Limpet65,10086500\n29,Melopatra,10056450\n30,Czarnn,9940400\n31,ArsSenalDen,9818250\n32,TheBogus,9781100\n33,Plumb Mad,9403300\n34,XXXanderXXII,9229900\n35,dadbod1977,9150450\n36,StingKing61,9100500\n37,SpookyTruffL,9046700\n38,ChickenWingLover,8831120\n39,Ainz Overlord,8781350\n40,Rambo2018,8681750\n41,Watchtheworldburn,8668950\n42,Spakoli69,8620100\n43,beanville,8552800\n44,Mua Dib,8406250\n45,Manut26,8371150\n46,MMV25,8309100\n47,Juvi83,8164150\n48,RRRDDDRRR,8155650\n49,LadyCommando69,8089250\n50,SmittyYewtah,8069400\n51,WreckHold,7965000\n52,Sharyun83,7930400\n53,Dräins TÄBBY,7909730\n54,Valiant Fool,7738500\n55,RockySmurfette,7661200\n56,HurricaneCarma,7635400\n57,IINV18II,7508700\n58,Vyrooka,7401900\n59,LegendairyMoo42,7355400\n60,Rudeass91,7328900\n61,Poobearrr,6936900\n62,CookieDoh,6883450\n63,Arya420,6783900\n64,AlphaBravo2010,6576000\n65,Lincoln navigator,6567100\n66,Irish Bully Squad,6467700\n67,Medo mashak,6328600\n68,HarambesReaver,6190050\n69,Michelecruz,6109100\n70,Vampiresquadron,5985400\n71,MNovember,5919500\n72,vrod1003,5881700\n73,Montanagamer,5597500\n74,LtCatgut,5548750\n75,DemonSlayer0522,5494600\n76,E White,5345500\n77,northern Gaul,5203500\n78,FreePlayAllDay,5072750\n79,deathwish1,4908900\n80,Battlebum,4893700\n81,Riveroflight,4635000\n82,J renee,3998750\n83,SouthMost,3792300\n84,CarnageClaus,3690000\n85,Havoksnpa,3659600\n86,Venoms Carnage,3616500\n87,Bannamu,3393000\n88,Bewblover,3162500\n89,Weemzy,2871000\n90,MoccaMaster,2849100\n91,Dre137,2667450\n92,Cykot,2514000\n93,itsmekaityg,2216750\n94,Dove Zone,1530000\n95,Tucker11978,1368800\n96,btss,1170000\n97,Ducky615,0\n98,Dilly0,0\n99,DjcHaRm23,0\n100,Moto a GoGo,0`;
+  render();
 }
 
-function restoreSavedData() {
-  try {
-    let payload = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (!payload) {
-      const legacy = JSON.parse(localStorage.getItem(LEGACY_BACKUP_KEY) || 'null');
-      if (Array.isArray(legacy)) payload = { rows: legacy, fields: {} };
-    }
-    if (!payload) return;
-    extractedRows = Array.isArray(payload.rows) ? payload.rows : [];
-    for (const [id,value] of Object.entries(payload.fields || {})) if ($(id)) $(id).value = value;
-    renderReviewTable();
-    $('ocrStatus').textContent = extractedRows.length ? `Restored ${extractedRows.length} saved members.` : $('ocrStatus').textContent;
-  } catch (error) {
-    console.warn('Could not restore saved data:', error);
-  }
-}
+$('generateBtn').addEventListener('click',render);
+$('downloadBtn').addEventListener('click',download);
+$('readDuelBtn').addEventListener('click',readDuel);
+$('loadDemoBtn').addEventListener('click',loadDemo);
 
-window.addEventListener('beforeunload', saveCurrentData);
-document.addEventListener('input', event => {
-  if (event.target.closest('.controls')) saveCurrentData();
-});
-
-restoreSavedData();
-loadDefaultTemplate();
-$('generateBtn').addEventListener('click', async () => { await drawReport(); saveCurrentData(); });
-$('extractBtn').addEventListener('click', extractScreenshots);
-$('clearBtn').addEventListener('click',()=>{$('screenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('ocrStatus').textContent='Cleared.';$('ocrProgress').value=0;});
-$('addRowBtn').addEventListener('click',()=>{extractedRows.push({rank:extractedRows.length+1,name:'',points:0});renderReviewTable();});
-$('loadManualBtn').addEventListener('click',()=>{extractedRows=parseRankings($('rankings').value);renderReviewTable();$('ocrStatus').textContent=`Loaded ${extractedRows.length} pasted rows.`;});
-async function downloadReport() {
-  const button = $('downloadBtn');
-  const originalText = button.textContent;
-  try {
-    button.disabled = true;
-    button.textContent = 'Preparing PNG...';
-
-    const rows = getRows();
-    if (!rows.length) {
-      $('validation').innerHTML = '<span class="warn">No ranking data is available. Add or extract member data first.</span>';
-      return;
-    }
-
-    await templateReady;
-
-    await drawReport();
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-    const filename = `LIIT-${$('date').value.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'')}-Daily-VS-Report.png`;
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(result => result ? resolve(result) : reject(new Error('The browser could not create the PNG file.')), 'image/png');
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
-
-    $('validation').innerHTML += `<br><span class="ok">PNG prepared: ${filename}. Check your Downloads folder.</span>`;
-  } catch (error) {
-    console.error('PNG download failed:', error);
-    $('validation').innerHTML = `<span class="warn">PNG download failed: ${error.message || error}. Try the fallback button below.</span>`;
-    try {
-      const dataUrl = canvas.toDataURL('image/png');
-      const opened = window.open(dataUrl, '_blank');
-      if (!opened) throw new Error('Your browser blocked the download and the fallback tab. Allow pop-ups/downloads for this local site.');
-    } catch (fallbackError) {
-      console.error('PNG fallback failed:', fallbackError);
-      $('validation').innerHTML += `<br><span class="warn">Fallback failed: ${fallbackError.message || fallbackError}</span>`;
-    }
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
-}
-
-$('templateFile').addEventListener('change', async event => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  try {
-    await setTemplateFromBlob(file, file.name);
-    $('validation').innerHTML = '<span class="ok">Template is ready. Your saved roster remains available.</span>';
-  } catch (error) {
-    console.error(error);
-    $('templateStatus').innerHTML = `<span class="warn">Template could not be loaded: ${error.message || error}</span>`;
-  }
-});
-
-$('downloadBtn').addEventListener('click', downloadReport);
-$('screenshots').addEventListener('change',e=>{const grid=$('previewGrid');grid.innerHTML='';[...e.target.files].forEach(file=>{const img=document.createElement('img');img.src=URL.createObjectURL(file);grid.appendChild(img);});$('ocrStatus').textContent=`${e.target.files.length} screenshot(s) selected. Click Extract Members.`;});
+template.onload=()=>{drawTemplate();setTodayDefaults();$('message').textContent='Template loaded. Add roster data or click Load Day 3 Demo.'};
+template.onerror=()=>{$('message').textContent='Template failed to load. Make sure template.png is in the same folder and run through Live Server or GitHub Pages.'};

@@ -81,6 +81,8 @@ function mask(x,y,w,h,color='#080c10'){ctx.save();ctx.fillStyle=color;ctx.fillRe
 function drawTemplate(){ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(template,0,0,1024,1536)}
 
 function render(){
+  try {
+  syncEventFromDate();
   syncRowsFromTable();const rows=[...extractedRows].sort((a,b)=>a.rank-b.rank);if(!rows.length){$('message').textContent='Extract or enter roster data first.';return}
   const stats=derive(rows),dateVal=$('reportDate').value,date=dateVal?new Date(dateVal+'T12:00:00'):new Date(),weekday=date.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase(),dateLong=date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase(),event=$('eventTitle').value,opponent=($('opponent').value||'OPPONENT').toUpperCase(),liit=n($('liitScore').value),enemy=n($('enemyScore').value),victory=liit>=enemy,result=victory?'VICTORY':'DEFEAT',margin=Math.abs(liit-enemy);
   drawTemplate();
@@ -96,6 +98,7 @@ function render(){
   mask(173,1190,480,136,'#071018');let notes=$('leadershipNotes').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);if(!notes.length)notes=[`${result==='VICTORY'?'LIIT won':'LIIT finished'} by ${fmt(margin)} VS points.`,`${stats.rate.toFixed(0)}% of the alliance met the 3.6M minimum.`,`${stats.below.length} members finished below 3.6M.`,`${stats.unexcusedZero.length} unexcused members recorded zero points.`,stats.excusedZero.length?`${stats.excusedZero.length} zero-point member(s) were excused.`:'No zero-point members were marked excused.'];notes.slice(0,5).forEach((note,i)=>{const y=1210+i*25,color=i<2?'#65d81c':i===2?'#ffc52a':i===3?'#ff3a3a':'#2caaf5';fitText(note,180,y,455,18,'#fff','left','600')});
   mask(23,1355,665,150,'#071018');fitText('A SINGLE WARRIOR MAY LOSE A BATTLE,',355,1402,620,25,'#f2f2f2','center','900');fitText('BUT A CLAN OF WARRIORS WINS THE WAR.',355,1438,620,26,'#f4b719','center','900');fitText('HONOR  •  LOYALTY  •  VICTORY',355,1481,500,19,'#d7d7d7','center','800');
   $('downloadBtn').disabled=false;$('message').innerHTML=`<span class="ok">Rendered ${rows.length} roster rows.</span> Participation ${stats.active}/${stats.total} (${stats.rate.toFixed(1)}%). Stretch ${stats.stretch.length} • Met ${stats.met.length} • Below ${stats.below.length} • Zero ${stats.zeros.length}.`;saveState();
+  } catch(err) { console.error(err); $('message').innerHTML='<span class="danger">Generate failed: '+escapeHtml(err.message||String(err))+'</span>'; }
 }
 
 function download(){const date=$('reportDate').value||'date';canvas.toBlob(blob=>{if(!blob){$('message').textContent='PNG export failed.';return}const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`LIIT_${date}_Daily_VS_Report.png`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)},'image/png')}
@@ -105,13 +108,29 @@ async function readDuel(){const file=$('duelScreenshot').files[0];if(!file){$('d
 function saveState(){syncRowsFromTable();const payload={rows:extractedRows,fields:{reportDate:$('reportDate').value,allianceMembers:$('allianceMembers').value,excusedMembers:$('excusedMembers').value,opponent:$('opponent').value,liitScore:$('liitScore').value,enemyScore:$('enemyScore').value,leadershipNotes:$('leadershipNotes').value}};localStorage.setItem(STORAGE_KEY,JSON.stringify(payload))}
 function restoreState(){try{const p=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');if(!p)return;extractedRows=Array.isArray(p.rows)?p.rows:[];Object.entries(p.fields||{}).forEach(([id,v])=>{if($(id))$(id).value=v});renderReviewTable();syncEventFromDate();if(extractedRows.length)$('rankingStatus').textContent=`Restored ${extractedRows.length} saved members.`}catch(e){console.warn(e)}}
 
+
+function exportBackup(){
+  saveState();
+  const raw=localStorage.getItem(STORAGE_KEY)||'{}';
+  const blob=new Blob([raw],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`LIIT_roster_backup_${$('reportDate').value||'current'}.json`;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  $('message').textContent='Roster backup downloaded.';
+}
+async function importBackup(file){
+  if(!file)return;
+  try{const raw=await file.text();const p=JSON.parse(raw);localStorage.setItem(STORAGE_KEY,JSON.stringify(p));restoreState();$('message').textContent='Roster backup restored.'}
+  catch(err){$('message').innerHTML='<span class="danger">Backup restore failed: '+escapeHtml(err.message||String(err))+'</span>'}
+}
+
 function loadDemo(){
  $('reportDate').value='2026-08-05';syncEventFromDate();$('opponent').value='REAR';$('liitScore').value='805,705,900';$('enemyScore').value='28,643,976';$('allianceMembers').value=100;$('excusedMembers').value='Moto a GoGo';
  const demo=`1,Johntilla the Fun,19718400\n2,OG Cobb,19001300\n3,TangoWhiskeyy,18991350\n4,4tt1cus,17168200\n5,Dubbzz7,16702250\n6,Dr LAZR,14798200\n7,Náțe,14731250\n8,Raeghin,14218250\n9,Oblivion,13752250\n10,oAbaporu,13516550\n87,Bannamu,3393000\n88,Bewblover,3162500\n89,Weemzy,2871000\n90,MoccaMaster,2849100\n91,Dre137,2667450\n92,Cykot,2514000\n93,itsmekaityg,2216750\n94,Dove Zone,1530000\n95,Tucker11978,1368800\n96,btss,1170000\n97,Ducky615,0\n98,Dilly0,0\n99,DjcHaRm23,0\n100,Moto a GoGo,0`;
  extractedRows=demo.split(/\n/).map(line=>{const p=line.split(',');return{rank:n(p[0]),name:p[1],points:n(p[2])}});renderReviewTable();render();
 }
 
-$('extractRankingsBtn').addEventListener('click',extractRankings);$('clearRankingsBtn').addEventListener('click',()=>{$('rankingScreenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('rankingStatus').textContent='Cleared.';$('ocrProgress').value=0;saveState()});$('addRowBtn').addEventListener('click',()=>{syncRowsFromTable();extractedRows.push({rank:extractedRows.length+1,name:'',points:0});renderReviewTable()});$('saveRosterBtn').addEventListener('click',()=>{saveState();$('message').textContent='Review table saved in this browser.'});$('readDuelBtn').addEventListener('click',readDuel);$('generateBtn').addEventListener('click',render);$('downloadBtn').addEventListener('click',download);$('loadDemoBtn').addEventListener('click',loadDemo);window.addEventListener('beforeunload',saveState);
+$('exportBackupBtn').addEventListener('click',exportBackup);$('importBackupFile').addEventListener('change',e=>importBackup(e.target.files[0]));$('extractRankingsBtn').addEventListener('click',extractRankings);$('clearRankingsBtn').addEventListener('click',()=>{$('rankingScreenshots').value='';$('previewGrid').innerHTML='';extractedRows=[];renderReviewTable();$('rankingStatus').textContent='Cleared.';$('ocrProgress').value=0;saveState()});$('addRowBtn').addEventListener('click',()=>{syncRowsFromTable();extractedRows.push({rank:extractedRows.length+1,name:'',points:0});renderReviewTable()});$('saveRosterBtn').addEventListener('click',()=>{saveState();$('message').textContent='Review table saved in this browser.'});$('readDuelBtn').addEventListener('click',readDuel);$('generateBtn').addEventListener('click',render);$('downloadBtn').addEventListener('click',download);$('loadDemoBtn').addEventListener('click',loadDemo);window.addEventListener('beforeunload',saveState);
 document.addEventListener('input',e=>{if(e.target.closest('.controls'))saveState()});
 
 template.onload=()=>{drawTemplate();setTodayDefaults();restoreState();$('message').textContent='Ready. Upload all ranking screenshots at once, then click Extract Members.'};

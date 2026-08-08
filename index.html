@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LIIT Daily VS Report Generator v3</title>
+  <title>LIIT Daily VS Report Generator v3.1</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -65,6 +65,8 @@
         <div class="actions-row">
           <button id="addRowBtn" class="secondary small" type="button">Add Row</button>
           <button id="saveRosterBtn" class="secondary small" type="button">Save Review</button>
+          <button id="exportBackupBtn" class="secondary small" type="button">Download Roster Backup</button>
+          <label class="secondary small import-label">Restore Backup<input id="importBackupFile" type="file" accept="application/json" hidden></label>
         </div>
       </fieldset>
 

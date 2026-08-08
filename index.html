@@ -3,59 +3,75 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LIIT Daily VS Report Generator</title>
+  <title>LIIT Daily VS Report Generator v3</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="app-shell">
     <section class="controls">
       <h1>LIIT Daily VS Report Generator</h1>
-      <p class="sub">Locked-template test build. Enter or paste the reviewed data, then generate the PNG.</p>
-
-      <div class="grid two">
-        <label>Date<input id="reportDate" type="date" /></label>
-        <label>Week<input id="weekNumber" type="number" min="1" max="60" value="32" /></label>
-      </div>
-
-      <div class="grid two">
-        <label>Day<input id="dayNumber" type="number" min="1" max="6" /></label>
-        <label>VS Event<input id="eventTitle" type="text" readonly /></label>
-      </div>
+      <p class="sub">Upload the daily ranking screenshots, review OCR, then generate the PNG.</p>
 
       <fieldset>
-        <legend>Duel</legend>
+        <legend>1. Daily details</legend>
+        <div class="grid two">
+          <label>Date<input id="reportDate" type="date" /></label>
+          <label>VS Event<input id="eventTitle" type="text" readonly /></label>
+          <label>Alliance Members<input id="allianceMembers" type="number" value="100" min="1" max="100" /></label>
+          <label>Excused Members<input id="excusedMembers" type="text" placeholder="Moto a GoGo" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>2. Upload ranking screenshots</legend>
+        <p class="help"><b>Select all ranking screenshots at once.</b> Upload order does not matter. The app attempts to rebuild ranks 1–100 and removes duplicates by rank.</p>
+        <label class="upload">Ranking screenshots
+          <input id="rankingScreenshots" type="file" accept="image/*" multiple />
+        </label>
+        <div class="actions-row">
+          <button id="extractRankingsBtn" type="button">Extract Members</button>
+          <button id="clearRankingsBtn" type="button" class="secondary">Clear</button>
+        </div>
+        <progress id="ocrProgress" value="0" max="100"></progress>
+        <p id="rankingStatus" class="status">No ranking screenshots selected.</p>
+        <div id="previewGrid" class="preview-grid"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>3. Duel screenshot</legend>
         <div class="grid two">
           <label>Opponent<input id="opponent" type="text" placeholder="REAR" /></label>
-          <label>Alliance Members<input id="allianceMembers" type="number" value="100" min="1" /></label>
           <label>LIIT Score<input id="liitScore" type="text" inputmode="numeric" /></label>
           <label>Opponent Score<input id="enemyScore" type="text" inputmode="numeric" /></label>
         </div>
-        <label class="upload">Optional Duel screenshot for OCR
+        <label class="upload">Duel screenshot
           <input id="duelScreenshot" type="file" accept="image/*" />
         </label>
         <div class="actions-row">
           <button id="readDuelBtn" type="button" class="secondary">Read Duel Screenshot (Beta)</button>
-          <span id="ocrStatus" class="status"></span>
+          <span id="duelStatus" class="status"></span>
         </div>
       </fieldset>
 
       <fieldset>
-        <legend>Roster</legend>
-        <p class="help">Paste reviewed rows as <b>rank,name,points</b>. One member per line. The generator sorts by rank and calculates all participation categories automatically.</p>
-        <textarea id="rosterCsv" rows="15" spellcheck="false" placeholder="1,Johntilla the Fun,59503798\n2,4tt1cus,43824082\n..."></textarea>
+        <legend>4. Review extracted roster</legend>
+        <p class="help">The table is sorted by rank. Correct only the rows OCR gets wrong. Missing ranks are highlighted in the status message.</p>
+        <div class="table-wrap">
+          <table id="reviewTable">
+            <thead><tr><th>Rank</th><th>Member</th><th>Points</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="actions-row">
+          <button id="addRowBtn" class="secondary small" type="button">Add Row</button>
+          <button id="saveRosterBtn" class="secondary small" type="button">Save Review</button>
+        </div>
       </fieldset>
 
       <fieldset>
-        <legend>Excused</legend>
-        <label>Excused members (comma-separated)
-          <input id="excusedMembers" type="text" placeholder="Moto a GoGo" />
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Leadership Notes</legend>
-        <label>Optional notes (one per line)
-          <textarea id="leadershipNotes" rows="5" placeholder="Leave blank to auto-generate notes from the data."></textarea>
+        <legend>5. Leadership notes</legend>
+        <label>Optional notes
+          <textarea id="leadershipNotes" rows="4" placeholder="Leave blank for automatic notes."></textarea>
         </label>
       </fieldset>
 
@@ -68,10 +84,7 @@
     </section>
 
     <section class="preview-wrap">
-      <div class="preview-head">
-        <h2>Preview</h2>
-        <span>1024 × 1536 PNG</span>
-      </div>
+      <div class="preview-head"><h2>Preview</h2><span>1024 × 1536 PNG</span></div>
       <canvas id="reportCanvas" width="1024" height="1536"></canvas>
     </section>
   </main>
